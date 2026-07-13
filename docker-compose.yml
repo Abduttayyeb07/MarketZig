@@ -1,0 +1,9 @@
+services:
+  zig-whale-bot:
+    build: .
+    container_name: zig-whale-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
