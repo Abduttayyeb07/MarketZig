@@ -67,9 +67,20 @@ docker compose up -d --build # rebuild after pulling code changes
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
 | `POLL_INTERVAL_SEC` | Seconds between poll cycles (default 5) |
 | `BUY_TX_ALERT_THRESHOLD_USDT` | Alert instantly when a single buy transaction's notional value is >= this (default 1000000) |
+| `NOTABLE_TRADE_RATIO` | Log (not alert) any buy trade that's >= this fraction of the threshold, so near-misses are visible (default 0.1 = log anything >=10% of threshold) |
 | `ENABLE_MEXC` / `ENABLE_BYBIT` / `ENABLE_KUCOIN` / `ENABLE_GATEIO` / `ENABLE_BITGET` | Toggle each exchange adapter |
 
 Lower `BUY_TX_ALERT_THRESHOLD_USDT` for more alerts (e.g. `250000`), raise it to only catch the biggest single trades.
+
+## Logging
+
+The bot logs (all timestamped):
+- startup config (which exchanges, threshold, poll interval)
+- a once-a-minute heartbeat per exchange with the largest single buy seen that cycle
+- every buy trade that's at least `NOTABLE_TRADE_RATIO` of the alert threshold (e.g. a $150K buy against a $1M threshold logs as "15% of threshold"), so you can see activity building up even when nothing alerts yet
+- every subscribe/unsubscribe/exchange-toggle event, with chat id and @username
+- every alert actually sent, with subscriber count
+- any per-exchange fetch failure (never crashes the loop)
 
 ## Project layout
 

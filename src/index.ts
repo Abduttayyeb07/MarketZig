@@ -5,7 +5,7 @@ import { kucoin } from './exchanges/kucoin';
 import { gateio } from './exchanges/gateio';
 import { bitget } from './exchanges/bitget';
 import { broadcastAlert, getSubscriberCount, startTelegramCommandLoop } from './telegramBot';
-import { TELEGRAM_BOT_TOKEN, POLL_INTERVAL_SEC, BUY_TX_ALERT_THRESHOLD_USDT } from './config';
+import { TELEGRAM_BOT_TOKEN, POLL_INTERVAL_SEC, BUY_TX_ALERT_THRESHOLD_USDT, NOTABLE_TRADE_RATIO } from './config';
 import { log } from './logger';
 import { formatCompact } from './format';
 
@@ -88,12 +88,18 @@ async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> 
   }
 
   let biggestBuy = 0;
+  const notableFloor = BUY_TX_ALERT_THRESHOLD_USDT * NOTABLE_TRADE_RATIO;
 
   for (const trade of trades) {
     if (trade.side !== 'BUY') continue;
     if (es.seenIds.has(trade.id)) continue;
     es.seenIds.set(trade.id, trade.ts);
     biggestBuy = Math.max(biggestBuy, trade.notionalUsdt);
+
+    if (trade.notionalUsdt >= notableFloor) {
+      const pctOfThreshold = Math.round((trade.notionalUsdt / BUY_TX_ALERT_THRESHOLD_USDT) * 100);
+      log.info(`[${adapter.name}] buy trade ${formatCompact(trade.notionalUsdt)} USDT (${pctOfThreshold}% of threshold)`);
+    }
 
     if (trade.notionalUsdt >= BUY_TX_ALERT_THRESHOLD_USDT) {
       const lastAlertHuman = humanizeSince(es.lastAlertAt, now);
