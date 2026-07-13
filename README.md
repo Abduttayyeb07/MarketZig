@@ -1,15 +1,16 @@
 # ZIG Whale-Alert Telegram Bot
 
-Standalone Telegram bot (Node.js + TypeScript, single process, no framework, no database) that monitors ZIG/USDT on 5 exchanges (MEXC, Bybit, KuCoin, Gate.io, Bitget) and sends "Whale Sniper" style alerts for unusual buying/selling activity — one alert per exchange.
+Standalone Telegram bot (Node.js + TypeScript, single process, no framework, no database) that monitors ZIG/USDT on 5 exchanges (MEXC, Bybit, KuCoin, Gate.io, Bitget) and sends a "Whale Sniper" style alert the instant any single buy transaction crosses a fixed USDT threshold.
 
 ## How it works
 
 Every `POLL_INTERVAL_SEC` seconds, for each enabled exchange:
 
 1. Fetch recent trades and the 24h ticker.
-2. Dedup new trades by id and append to a rolling in-memory buffer; evict trades older than `WINDOW_MIN` minutes.
-3. Sum BUY and SELL notional (USDT) within the window.
-4. If either side's notional exceeds `max(ABS_FLOOR_USDT, 24h_volume * SHARE_PCT / 100)`, broadcast a Telegram alert — unless that (exchange, side) is on cooldown. While on cooldown, an alert still fires if the new notional has grown to at least `ESCALATION_MULT` × the notional that triggered the last alert (so a whale that keeps buying bigger and bigger doesn't go silent for the full cooldown window).
+2. For each new BUY trade (deduped by id), check its notional value.
+3. If a single trade's notional is >= `BUY_TX_ALERT_THRESHOLD_USDT`, broadcast a Telegram alert immediately for that transaction.
+
+There's no window aggregation, threshold-as-%-of-volume, or cooldown — every qualifying transaction gets its own alert, on every exchange, independently.
 
 Each exchange is wrapped in try/catch — a failure or delisting on one exchange is logged and skipped, never crashing the loop.
 
@@ -65,21 +66,20 @@ docker compose up -d --build # rebuild after pulling code changes
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from @BotFather |
 | `POLL_INTERVAL_SEC` | Seconds between poll cycles (default 5) |
-| `WINDOW_MIN` | Rolling trade window in minutes (default 5) |
-| `SHARE_PCT` | Alert when window notional >= this % of 24h volume (default 6) |
-| `ABS_FLOOR_USDT` | Absolute floor so thin markets don't spam (default 1500) |
-| `COOLDOWN_MIN` | Minimum minutes between repeat alerts per (exchange, side) (default 45) |
-| `ESCALATION_MULT` | During cooldown, re-alert anyway if new notional >= this × the notional that triggered the last alert (default 1.5) |
+| `BUY_TX_ALERT_THRESHOLD_USDT` | Alert instantly when a single buy transaction's notional value is >= this (default 1000000) |
 | `ENABLE_MEXC` / `ENABLE_BYBIT` / `ENABLE_KUCOIN` / `ENABLE_GATEIO` / `ENABLE_BITGET` | Toggle each exchange adapter |
 
-Lower `SHARE_PCT` to 4-5 for more alerts; raise to 8-10 to only catch large whales.
+Lower `BUY_TX_ALERT_THRESHOLD_USDT` for more alerts (e.g. `250000`), raise it to only catch the biggest single trades.
 
 ## Project layout
 
 ```
 src/
-  index.ts              # poll loop, detector
+  index.ts              # poll loop, per-transaction detector
   types.ts              # normalized Trade/Ticker/ExchangeAdapter types
+  config.ts              # env-derived config
+  format.ts               # shared number formatting (38400 -> "38.4K")
+  logger.ts               # timestamped console logger
   telegramBot.ts         # /subscribe, /unsubscribe command handling + alert broadcast
   subscribers.ts         # reads/writes data/subscribers.json
   exchanges/

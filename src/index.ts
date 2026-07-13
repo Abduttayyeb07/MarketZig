@@ -1,20 +1,13 @@
-import { ExchangeAdapter, ExchangeName, Side, Trade } from './types';
+import { ExchangeAdapter, ExchangeName } from './types';
 import { mexc } from './exchanges/mexc';
 import { bybit } from './exchanges/bybit';
 import { kucoin } from './exchanges/kucoin';
 import { gateio } from './exchanges/gateio';
 import { bitget } from './exchanges/bitget';
 import { broadcastAlert, getSubscriberCount, startTelegramCommandLoop } from './telegramBot';
-import {
-  TELEGRAM_BOT_TOKEN,
-  POLL_INTERVAL_SEC,
-  WINDOW_MIN,
-  SHARE_PCT,
-  ABS_FLOOR_USDT,
-  COOLDOWN_MIN,
-  ESCALATION_MULT,
-} from './config';
+import { TELEGRAM_BOT_TOKEN, POLL_INTERVAL_SEC, BUY_TX_ALERT_THRESHOLD_USDT } from './config';
 import { log } from './logger';
+import { formatCompact } from './format';
 
 if (!TELEGRAM_BOT_TOKEN) {
   log.error('Missing TELEGRAM_BOT_TOKEN in environment.');
@@ -34,23 +27,16 @@ const adapters = ALL_ADAPTERS.filter(
 ).map(({ adapter }) => adapter);
 
 type ExchangeState = {
-  seenIds: Set<string>;
-  buffer: Trade[];
-  lastAlertAt: Partial<Record<Side, number>>;
-  lastAlertNotional: Partial<Record<Side, number>>;
+  seenIds: Map<string, number>; // id -> trade ts, for bounded dedup
+  lastAlertAt?: number;
 };
 
 const state = new Map<ExchangeName, ExchangeState>();
 for (const adapter of adapters) {
-  state.set(adapter.name, { seenIds: new Set(), buffer: [], lastAlertAt: {}, lastAlertNotional: {} });
+  state.set(adapter.name, { seenIds: new Map() });
 }
 
-function formatCompact(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toFixed(0);
-}
+const SEEN_ID_TTL_MS = 60 * 60 * 1000; // bound memory: forget trade ids after 1h
 
 function humanizeSince(lastAlertAt: number | undefined, now: number): string {
   if (lastAlertAt === undefined) return 'never';
@@ -66,22 +52,18 @@ function humanizeSince(lastAlertAt: number | undefined, now: number): string {
 
 function buildAlertMessage(params: {
   exchangeName: ExchangeName;
-  side: Side;
-  windowNotional: number;
-  sharePct: number;
+  notionalUsdt: number;
   lastPrice: number;
   priceChangePct: number;
   vol24hUsdt: number;
   lastAlertHuman: string;
 }): string {
-  const { exchangeName, side, windowNotional, sharePct, lastPrice, priceChangePct, vol24hUsdt, lastAlertHuman } =
-    params;
-  const activity = side === 'BUY' ? 'buying' : 'selling';
+  const { exchangeName, notionalUsdt, lastPrice, priceChangePct, vol24hUsdt, lastAlertHuman } = params;
   return (
     `🐋 <b>Whale Sniper</b>\n` +
     `<b>${exchangeName}</b> — USDT Market\n` +
-    `#ZIG — Unusual <b>${activity}</b> activity\n` +
-    `${formatCompact(windowNotional)} USDT in ${WINDOW_MIN} minutes (${sharePct}%)\n` +
+    `#ZIG — Large <b>buy</b> transaction\n` +
+    `${formatCompact(notionalUsdt)} USDT in a single trade\n` +
     `P: ${lastPrice} (${priceChangePct.toFixed(2)}%)\n` +
     `24H Vol: ${formatCompact(vol24hUsdt)} USDT\n` +
     `Last alert: ${lastAlertHuman}`
@@ -90,73 +72,47 @@ function buildAlertMessage(params: {
 
 type ExchangeSummary = {
   exchangeName: ExchangeName;
-  winBuy: number;
-  winSell: number;
-  threshold: number;
+  biggestBuy: number;
   vol24hUsdt: number;
 };
 
 async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> {
   const es = state.get(adapter.name)!;
   const now = Date.now();
-  const windowMs = WINDOW_MIN * 60 * 1000;
 
   const [ticker, trades] = await Promise.all([adapter.fetchTicker(), adapter.fetchTrades()]);
 
+  const evictBefore = now - SEEN_ID_TTL_MS;
+  for (const [id, ts] of es.seenIds) {
+    if (ts < evictBefore) es.seenIds.delete(id);
+  }
+
+  let biggestBuy = 0;
+
   for (const trade of trades) {
+    if (trade.side !== 'BUY') continue;
     if (es.seenIds.has(trade.id)) continue;
-    es.seenIds.add(trade.id);
-    es.buffer.push(trade);
-  }
+    es.seenIds.set(trade.id, trade.ts);
+    biggestBuy = Math.max(biggestBuy, trade.notionalUsdt);
 
-  const cutoff = now - windowMs;
-  const evicted = es.buffer.filter((t) => t.ts < cutoff);
-  es.buffer = es.buffer.filter((t) => t.ts >= cutoff);
-  for (const t of evicted) es.seenIds.delete(t.id);
+    if (trade.notionalUsdt >= BUY_TX_ALERT_THRESHOLD_USDT) {
+      const lastAlertHuman = humanizeSince(es.lastAlertAt, now);
 
-  const winBuy = es.buffer.filter((t) => t.side === 'BUY').reduce((sum, t) => sum + t.notionalUsdt, 0);
-  const winSell = es.buffer.filter((t) => t.side === 'SELL').reduce((sum, t) => sum + t.notionalUsdt, 0);
+      const message = buildAlertMessage({
+        exchangeName: adapter.name,
+        notionalUsdt: trade.notionalUsdt,
+        lastPrice: ticker.lastPrice,
+        priceChangePct: ticker.priceChangePct,
+        vol24hUsdt: ticker.vol24hUsdt,
+        lastAlertHuman,
+      });
 
-  const threshold = Math.max(ABS_FLOOR_USDT, (ticker.vol24hUsdt * SHARE_PCT) / 100);
-  const cooldownMs = COOLDOWN_MIN * 60 * 1000;
-
-  const sides: { side: Side; notional: number }[] = [
-    { side: 'BUY', notional: winBuy },
-    { side: 'SELL', notional: winSell },
-  ];
-
-  for (const { side, notional } of sides) {
-    if (notional < threshold) continue;
-
-    const lastAlertAt = es.lastAlertAt[side];
-    const lastAlertNotional = es.lastAlertNotional[side];
-    const onCooldown = lastAlertAt !== undefined && now - lastAlertAt < cooldownMs;
-
-    if (onCooldown) {
-      const escalated = lastAlertNotional !== undefined && notional >= lastAlertNotional * ESCALATION_MULT;
-      if (!escalated) continue;
+      await broadcastAlert(adapter.name, message);
+      es.lastAlertAt = now;
     }
-
-    const sharePct = Math.round((notional / ticker.vol24hUsdt) * 100 * 10) / 10;
-    const lastAlertHuman = humanizeSince(lastAlertAt, now);
-
-    const message = buildAlertMessage({
-      exchangeName: adapter.name,
-      side,
-      windowNotional: notional,
-      sharePct,
-      lastPrice: ticker.lastPrice,
-      priceChangePct: ticker.priceChangePct,
-      vol24hUsdt: ticker.vol24hUsdt,
-      lastAlertHuman,
-    });
-
-    await broadcastAlert(adapter.name, message);
-    es.lastAlertAt[side] = now;
-    es.lastAlertNotional[side] = notional;
   }
 
-  return { exchangeName: adapter.name, winBuy, winSell, threshold, vol24hUsdt: ticker.vol24hUsdt };
+  return { exchangeName: adapter.name, biggestBuy, vol24hUsdt: ticker.vol24hUsdt };
 }
 
 const HEARTBEAT_EVERY_CYCLES = Math.max(1, Math.round(60 / POLL_INTERVAL_SEC));
@@ -177,17 +133,15 @@ async function pollAll(): Promise<void> {
   if (cycleCount % HEARTBEAT_EVERY_CYCLES === 0) {
     for (const s of summaries) {
       log.info(
-        `[${s.exchangeName}] monitoring — buy=${formatCompact(s.winBuy)} sell=${formatCompact(s.winSell)} ` +
-          `threshold=${formatCompact(s.threshold)} 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
+        `[${s.exchangeName}] monitoring — largest buy this cycle=${formatCompact(s.biggestBuy)} ` +
+          `threshold=${formatCompact(BUY_TX_ALERT_THRESHOLD_USDT)} 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
       );
     }
   }
 }
 
 log.info(`ZIG Whale-Alert bot starting. Monitoring: ${adapters.map((a) => a.name).join(', ')}`);
-log.info(
-  `Poll interval ${POLL_INTERVAL_SEC}s, window ${WINDOW_MIN}min, share ${SHARE_PCT}%, floor ${ABS_FLOOR_USDT} USDT, cooldown ${COOLDOWN_MIN}min`
-);
+log.info(`Poll interval ${POLL_INTERVAL_SEC}s, buy transaction threshold ${BUY_TX_ALERT_THRESHOLD_USDT} USDT`);
 log.info(`Loaded ${getSubscriberCount()} subscriber(s) from data/subscribers.json`);
 startTelegramCommandLoop();
 pollAll();

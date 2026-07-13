@@ -1,16 +1,9 @@
 import axios from 'axios';
 import { loadSubscribers, saveSubscribers } from './subscribers';
 import { ExchangeName } from './types';
-import {
-  TELEGRAM_BOT_TOKEN,
-  ALL_EXCHANGES,
-  WINDOW_MIN,
-  SHARE_PCT,
-  ABS_FLOOR_USDT,
-  COOLDOWN_MIN,
-  ESCALATION_MULT,
-} from './config';
+import { TELEGRAM_BOT_TOKEN, ALL_EXCHANGES, BUY_TX_ALERT_THRESHOLD_USDT } from './config';
 import { log } from './logger';
+import { formatCompact } from './format';
 
 const API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
@@ -22,17 +15,15 @@ type InlineKeyboard = { inline_keyboard: { text: string; callback_data: string }
 
 function describeThresholds(): string {
   return (
-    `You'll get an alert when, on a single exchange, ZIG buy or sell volume in a ${WINDOW_MIN}-minute window ` +
-    `reaches at least ${SHARE_PCT}% of that exchange's 24h volume (minimum ${ABS_FLOOR_USDT} USDT). ` +
-    `Each exchange stays quiet for ${COOLDOWN_MIN} minutes after alerting per side, unless the activity grows to ` +
-    `${ESCALATION_MULT}x what triggered the last alert — then it alerts again right away.`
+    `You'll get an alert the instant any single ZIG buy transaction on an exchange is worth at least ` +
+    `${formatCompact(BUY_TX_ALERT_THRESHOLD_USDT)} USDT. Every qualifying transaction gets its own alert.`
   );
 }
 
 function welcomeText(): string {
   return (
     `🐋 <b>ZIG Whale Sniper</b>\n\n` +
-    `I watch ZIG/USDT on ${ALL_EXCHANGES.join(', ')} for unusually large buying or selling.\n\n` +
+    `I watch ZIG/USDT on ${ALL_EXCHANGES.join(', ')} for large individual buy transactions.\n\n` +
     `${describeThresholds()}\n\n` +
     `Tap Subscribe to start. You can pick which exchanges to follow afterwards.`
   );
