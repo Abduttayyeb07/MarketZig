@@ -2,6 +2,7 @@ export type Side = 'BUY' | 'SELL';
 
 export type Trade = {
   id: string;
+  quantity: number; // ZIG amount
   notionalUsdt: number;
   side: Side;
   ts: number; // ms

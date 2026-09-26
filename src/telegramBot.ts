@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { loadSubscribers, saveSubscribers } from './subscribers';
 import { ExchangeName } from './types';
-import { TELEGRAM_BOT_TOKEN, ALL_EXCHANGES, BUY_TX_ALERT_THRESHOLD_USDT } from './config';
+import { TELEGRAM_BOT_TOKEN, ALL_EXCHANGES, BUY_TX_ALERT_THRESHOLD_ZIG } from './config';
 import { log } from './logger';
 import { formatCompact } from './format';
 
@@ -16,7 +16,7 @@ type InlineKeyboard = { inline_keyboard: { text: string; callback_data: string }
 function describeThresholds(): string {
   return (
     `You'll get an alert the instant any single ZIG buy transaction on an exchange is worth at least ` +
-    `${formatCompact(BUY_TX_ALERT_THRESHOLD_USDT)} USDT. Every qualifying transaction gets its own alert.`
+    `${formatCompact(BUY_TX_ALERT_THRESHOLD_ZIG)} ZIG. Every qualifying transaction gets its own alert.`
   );
 }
 
@@ -230,3 +230,5 @@ export function startTelegramCommandLoop(): void {
     }
   })();
 }
+
+

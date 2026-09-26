@@ -25,6 +25,7 @@ export const kucoin: ExchangeAdapter = {
     });
     return (data.data as any[]).map((t) => ({
       id: t.tradeId,
+      quantity: Number(t.size),
       notionalUsdt: Number(t.price) * Number(t.size),
       side: t.side === 'buy' ? 'BUY' : 'SELL',
       ts: Number(t.time) / 1e6,

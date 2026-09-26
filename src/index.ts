@@ -5,7 +5,7 @@ import { kucoin } from './exchanges/kucoin';
 import { gateio } from './exchanges/gateio';
 import { bitget } from './exchanges/bitget';
 import { broadcastAlert, getSubscriberCount, startTelegramCommandLoop } from './telegramBot';
-import { TELEGRAM_BOT_TOKEN, POLL_INTERVAL_SEC, BUY_TX_ALERT_THRESHOLD_USDT, NOTABLE_TRADE_RATIO } from './config';
+import { TELEGRAM_BOT_TOKEN, POLL_INTERVAL_SEC, BUY_TX_ALERT_THRESHOLD_ZIG, NOTABLE_TRADE_RATIO } from './config';
 import { log } from './logger';
 import { formatCompact } from './format';
 
@@ -52,18 +52,19 @@ function humanizeSince(lastAlertAt: number | undefined, now: number): string {
 
 function buildAlertMessage(params: {
   exchangeName: ExchangeName;
+  quantity: number;
   notionalUsdt: number;
   lastPrice: number;
   priceChangePct: number;
   vol24hUsdt: number;
   lastAlertHuman: string;
 }): string {
-  const { exchangeName, notionalUsdt, lastPrice, priceChangePct, vol24hUsdt, lastAlertHuman } = params;
+  const { exchangeName, quantity, notionalUsdt, lastPrice, priceChangePct, vol24hUsdt, lastAlertHuman } = params;
   return (
     `🐋 <b>Whale Sniper</b>\n` +
     `<b>${exchangeName}</b> — USDT Market\n` +
     `#ZIG — Large <b>buy</b> transaction\n` +
-    `${formatCompact(notionalUsdt)} USDT in a single trade\n` +
+    `${formatCompact(quantity)} ZIG in a single trade\\n` +
     `P: ${lastPrice} (${priceChangePct.toFixed(2)}%)\n` +
     `24H Vol: ${formatCompact(vol24hUsdt)} USDT\n` +
     `Last alert: ${lastAlertHuman}`
@@ -88,7 +89,7 @@ async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> 
   }
 
   let biggestBuy = 0;
-  const notableFloor = BUY_TX_ALERT_THRESHOLD_USDT * NOTABLE_TRADE_RATIO;
+  const notableFloor = BUY_TX_ALERT_THRESHOLD_ZIG * NOTABLE_TRADE_RATIO;
 
   for (const trade of trades) {
     if (trade.side !== 'BUY') continue;
@@ -96,12 +97,12 @@ async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> 
     es.seenIds.set(trade.id, trade.ts);
     biggestBuy = Math.max(biggestBuy, trade.notionalUsdt);
 
-    if (trade.notionalUsdt >= notableFloor) {
-      const pctOfThreshold = Math.round((trade.notionalUsdt / BUY_TX_ALERT_THRESHOLD_USDT) * 100);
-      log.info(`[${adapter.name}] buy trade ${formatCompact(trade.notionalUsdt)} USDT (${pctOfThreshold}% of threshold)`);
+    if (trade.quantity >= notableFloor) {
+      const pctOfThreshold = Math.round((trade.quantity / BUY_TX_ALERT_THRESHOLD_ZIG) * 100);
+      log.info(`[${adapter.name}] buy trade ${formatCompact(trade.quantity)} ZIG (${pctOfThreshold}% of threshold)`);
     }
 
-    if (trade.notionalUsdt >= BUY_TX_ALERT_THRESHOLD_USDT) {
+    if (trade.quantity >= BUY_TX_ALERT_THRESHOLD_ZIG) {
       const lastAlertHuman = humanizeSince(es.lastAlertAt, now);
 
       const message = buildAlertMessage({
@@ -140,15 +141,23 @@ async function pollAll(): Promise<void> {
     for (const s of summaries) {
       log.info(
         `[${s.exchangeName}] monitoring — largest buy this cycle=${formatCompact(s.biggestBuy)} ` +
-          `threshold=${formatCompact(BUY_TX_ALERT_THRESHOLD_USDT)} 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
+          `threshold=${formatCompact(BUY_TX_ALERT_THRESHOLD_ZIG)} 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
       );
     }
   }
 }
 
 log.info(`ZIG Whale-Alert bot starting. Monitoring: ${adapters.map((a) => a.name).join(', ')}`);
-log.info(`Poll interval ${POLL_INTERVAL_SEC}s, buy transaction threshold ${BUY_TX_ALERT_THRESHOLD_USDT} USDT`);
+log.info(`Poll interval ${POLL_INTERVAL_SEC}s, buy transaction threshold ${BUY_TX_ALERT_THRESHOLD_ZIG} ZIG`);
 log.info(`Loaded ${getSubscriberCount()} subscriber(s) from data/subscribers.json`);
 startTelegramCommandLoop();
 pollAll();
 setInterval(pollAll, POLL_INTERVAL_SEC * 1000);
+
+
+
+
+
+
+
+

@@ -25,6 +25,7 @@ export const bybit: ExchangeAdapter = {
     });
     return (data.result.list as any[]).map((t) => ({
       id: t.execId,
+      quantity: Number(t.size),
       notionalUsdt: Number(t.price) * Number(t.size),
       side: t.side === 'Buy' ? 'BUY' : 'SELL',
       ts: Number(t.time),

@@ -24,6 +24,7 @@ export const mexc: ExchangeAdapter = {
     });
     return (data as any[]).map((t) => ({
       id: `${t.time}-${t.price}-${t.qty}`,
+      quantity: Number(t.qty),
       notionalUsdt: Number(t.quoteQty),
       side: t.isBuyerMaker ? 'SELL' : 'BUY',
       ts: Number(t.time),

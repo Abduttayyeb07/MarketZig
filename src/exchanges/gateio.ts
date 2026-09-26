@@ -25,6 +25,7 @@ export const gateio: ExchangeAdapter = {
     });
     return (data as any[]).map((t) => ({
       id: t.id,
+      quantity: Number(t.amount),
       notionalUsdt: Number(t.price) * Number(t.amount),
       side: t.side === 'buy' ? 'BUY' : 'SELL',
       ts: Math.floor(Number(t.create_time_ms)),
