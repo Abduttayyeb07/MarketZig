@@ -59,15 +59,20 @@ function buildAlertMessage(params: {
   vol24hUsdt: number;
   lastAlertHuman: string;
 }): string {
-  const { exchangeName, quantity, notionalUsdt, lastPrice, priceChangePct, vol24hUsdt, lastAlertHuman } = params;
+  const { exchangeName, quantity, notionalUsdt, lastPrice, vol24hUsdt, lastAlertHuman } = params;
+  const value = notionalUsdt < 1000 ? notionalUsdt.toFixed(2) : formatCompact(notionalUsdt);
   return (
-    `🐋 <b>Whale Sniper</b>\n` +
-    `<b>${exchangeName}</b> — USDT Market\n` +
-    `#ZIG — Large <b>buy</b> transaction\n` +
-    `${formatCompact(quantity)} ZIG in a single trade\\n` +
-    `P: ${lastPrice} (${priceChangePct.toFixed(2)}%)\n` +
-    `24H Vol: ${formatCompact(vol24hUsdt)} USDT\n` +
-    `Last alert: ${lastAlertHuman}`
+    `🐋 <b>Whale Alert — $ZIG</b>\n` +
+    `<b>${exchangeName} · ZIG/USDT</b>\n` +
+    `\n` +
+    `<b>Large Trade:</b> ${formatCompact(quantity)} ZIG\n` +
+    `<b>Price:</b> $${lastPrice}\n` +
+    `<b>Value:</b> ~$${value}\n` +
+    `\n` +
+    `<b>24H Volume:</b> $${formatCompact(vol24hUsdt)}\n` +
+    `<b>Side:</b> Buy\n` +
+    `\n` +
+    `🕒 Previous whale alert: ${lastAlertHuman}`
   );
 }
 
@@ -95,7 +100,7 @@ async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> 
     if (trade.side !== 'BUY') continue;
     if (es.seenIds.has(trade.id)) continue;
     es.seenIds.set(trade.id, trade.ts);
-    biggestBuy = Math.max(biggestBuy, trade.notionalUsdt);
+    biggestBuy = Math.max(biggestBuy, trade.quantity);
 
     if (trade.quantity >= notableFloor) {
       const pctOfThreshold = Math.round((trade.quantity / BUY_TX_ALERT_THRESHOLD_ZIG) * 100);
@@ -141,8 +146,8 @@ async function pollAll(): Promise<void> {
   if (cycleCount % HEARTBEAT_EVERY_CYCLES === 0) {
     for (const s of summaries) {
       log.info(
-        `[${s.exchangeName}] monitoring — largest buy this cycle=${formatCompact(s.biggestBuy)} ` +
-          `threshold=${formatCompact(BUY_TX_ALERT_THRESHOLD_ZIG)} 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
+        `[${s.exchangeName}] monitoring — largest buy this cycle=${formatCompact(s.biggestBuy)} ZIG ` +
+          `threshold=${formatCompact(BUY_TX_ALERT_THRESHOLD_ZIG)} ZIG 24hVol=${formatCompact(s.vol24hUsdt)} USDT`
       );
     }
   }
