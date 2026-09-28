@@ -107,6 +107,7 @@ async function pollExchange(adapter: ExchangeAdapter): Promise<ExchangeSummary> 
 
       const message = buildAlertMessage({
         exchangeName: adapter.name,
+        quantity: trade.quantity,
         notionalUsdt: trade.notionalUsdt,
         lastPrice: ticker.lastPrice,
         priceChangePct: ticker.priceChangePct,
@@ -153,11 +154,4 @@ log.info(`Loaded ${getSubscriberCount()} subscriber(s) from data/subscribers.jso
 startTelegramCommandLoop();
 pollAll();
 setInterval(pollAll, POLL_INTERVAL_SEC * 1000);
-
-
-
-
-
-
-
 
